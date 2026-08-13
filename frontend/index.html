@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Production Scanner v2</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <section class="card">
+      <div class="badge">Сканер производства v2 (API + Postgres)</div>
+      <h1>Сканирование штрих-кода</h1>
+      <p class="subtitle">
+        Откройте страницу на телефоне, нажмите кнопку и наведите камеру на штрих-код.
+      </p>
+
+      <button id="scanButton" class="primary-button">Сканировать</button>
+      <button id="stopButton" class="secondary-button" hidden>Остановить камеру</button>
+
+      <div id="reader" class="reader" hidden></div>
+
+      <div class="result-block">
+        <div class="label">Статус</div>
+        <div id="status" class="status">Ожидание запуска сканирования.</div>
+      </div>
+
+      <div class="result-block">
+        <div class="label">Декодированный номер</div>
+        <div id="decodedValue" class="decoded-value">—</div>
+      </div>
+
+      <div class="result-block">
+        <div class="label">Последняя операция</div>
+        <div id="lastOperation" class="decoded-value">—</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
