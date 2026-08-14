@@ -1,143 +1,353 @@
 # Production Scanner v2
 
-Вторая версия тестового задания: фронтенд для сканирования штрих-кодов и backend на FastAPI с PostgreSQL, который реально сохраняет операции по каждому номеру.
+Тестовое задание: мобильное веб-приложение для сканирования штрих-кодов камерой телефона и JSON API для контроля этапов производства.
 
-## Чем эта версия лучше
+Проект разделён на frontend и backend. Frontend запускает камеру телефона, распознаёт штрих-код и получает данные изделия через API. Backend реализован на FastAPI, развёрнут на Render и хранит демо-данные в SQLite.
 
-- Есть **PostgreSQL**, хранящий продукты и операции.
-- FastAPI работает в Docker-контейнере и подключается к базе через `docker-compose`.
-- Структура приближена к production: отдельные сервисы `db` и `backend`, healthcheck базы, restart-политика.
-- API `/api/barcodes/{barcode}` возвращает историю (последнюю операцию) по коду.
-- API `/api/operations/complete` записывает новую операцию в таблицу `production_operations`.
+## Демонстрация
+
+- Backend API: https://production-scanner-v2.onrender.com
+- Health check: https://production-scanner-v2.onrender.com/api/health
+- Swagger UI: https://production-scanner-v2.onrender.com/docs
+
+Для запуска frontend на телефоне используется HTTPS-туннель ngrok, так как браузерный доступ к камере (`getUserMedia`) требует HTTPS или `localhost`.
+
+## Возможности
+
+- Адаптивная страница для телефона.
+- Кнопка «Сканировать».
+- Запрос разрешения на доступ к камере.
+- Сканирование QR-кодов и распространённых форматов штрих-кодов.
+- Вывод декодированного номера.
+- Запрос данных изделия после сканирования.
+- Получение списка доступных операций.
+- Получение последней операции по изделию.
+- JSON API, готовый к подключению web-клиента и будущих нативных мобильных приложений.
+- Swagger/OpenAPI документация FastAPI.
+- Backend, доступный через публичный HTTPS-адрес Render.
 
 ## Структура проекта
 
 ```text
 production-scanner-v2/
 ├── frontend/
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
+│   ├── index.html             # Мобильная страница сканера
+│   ├── styles.css             # Адаптивные стили
+│   └── app.js                 # Камера, распознавание и API-запросы
 ├── backend/
-│   ├── Dockerfile
+│   ├── .python-version        # Python 3.12 для Render
+│   ├── requirements.txt       # Python-зависимости
 │   └── app/
-│       └── main.py
-├── docker-compose.yml
+│       └── main.py            # FastAPI, SQLAlchemy и SQLite
+├── docker-compose.yml         # Будущая Docker/PostgreSQL-конфигурация
 └── README.md
 ```
 
-## Запуск (Docker-first)
+## Технологии
 
-1. Установить Docker Desktop / Docker Engine.
-2. В корне проекта выполнить:
+| Слой | Решение |
+|---|---|
+| Frontend | HTML, CSS, JavaScript |
+| Сканирование | html5-qrcode |
+| Backend | Python, FastAPI |
+| API-документация | OpenAPI / Swagger UI |
+| ORM | SQLAlchemy |
+| База для demo | SQLite |
+| Публичный backend | Render |
+| HTTPS-туннель frontend | ngrok |
 
-```bash
-docker compose up --build
+## Архитектура
+
+```text
+Android / Browser
+        │
+        │ HTTPS
+        ▼
+ngrok frontend tunnel
+        │
+        ▼
+Static frontend (HTML / CSS / JavaScript)
+        │
+        │ HTTPS JSON API
+        ▼
+Render / FastAPI
+        │
+        ▼
+SQLite database
 ```
 
-Что произойдёт:
+### Почему frontend использует ngrok
 
-- поднимется контейнер `db` с PostgreSQL,
-- после того как база станет здоровой (healthcheck `pg_isready`),
-- соберётся образ backend (FastAPI),
-- поднимется контейнер `scanner_backend`.
+Браузерный API камеры `navigator.mediaDevices.getUserMedia()` работает только в secure context:
 
-Backend будет доступен по адресу:
+- `https://...`
+- `http://localhost`
 
-- Swagger UI: <http://localhost:8000/docs>
-- Health: <http://localhost:8000/api/health>
+Телефон не считает локальный адрес компьютера вида `http://192.168.x.x:5500` безопасным HTTPS-origin. Поэтому для тестирования с Android frontend открывается через URL ngrok вида:
 
-## Запуск фронтенда
+```text
+https://<random-name>.ngrok-free.app
+```
 
-Фронтенд не контейнеризован — его удобно запускать локально, чтобы работать с камерой телефона.
+## Backend API
 
-Вариант через встроенный HTTP-сервер:
+### Проверка состояния сервиса
 
-```bash
+```http
+GET /api/health
+```
+
+Ответ:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Получить информацию по штрих-коду
+
+```http
+GET /api/barcodes/{barcode}
+```
+
+Пример:
+
+```http
+GET /api/barcodes/1234567890123
+```
+
+Ответ:
+
+```json
+{
+  "barcode": "1234567890123",
+  "available_operations": [
+    {
+      "id": 1,
+      "code": "CUT",
+      "name": "Резка"
+    },
+    {
+      "id": 2,
+      "code": "WELD",
+      "name": "Сварка"
+    },
+    {
+      "id": 3,
+      "code": "PACK",
+      "name": "Упаковка"
+    }
+  ],
+  "last_operation": null
+}
+```
+
+Если штрих-код отсутствует, backend создаёт новую запись изделия.
+
+### Сохранить выполненную операцию
+
+```http
+POST /api/operations/complete
+Content-Type: application/json
+```
+
+Тело запроса:
+
+```json
+{
+  "barcode": "1234567890123",
+  "operation_code": "CUT"
+}
+```
+
+Пример ответа:
+
+```json
+{
+  "success": true,
+  "message": "Операция сохранена",
+  "operation_id": 1,
+  "performed_at": "2026-08-14T10:00:00"
+}
+```
+
+## Локальный запуск frontend
+
+### Требования
+
+- Python 3.11+.
+- Google Chrome, Microsoft Edge или Samsung Internet.
+- Установленный ngrok.
+- Доступ в интернет для ngrok и Render API.
+
+### Запуск
+
+Перейти в папку frontend:
+
+```powershell
+cd frontend
+```
+
+Запустить статический сервер:
+
+```powershell
+python -m http.server 5500
+```
+
+Открыть на компьютере:
+
+```text
+http://localhost:5500
+```
+
+## Запуск на Android
+
+### 1. Проверить адрес API
+
+В `frontend/app.js` должен быть указан публичный Render API:
+
+```javascript
+const API_BASE_URL = "https://production-scanner-v2.onrender.com";
+```
+
+### 2. Запустить frontend
+
+```powershell
 cd frontend
 python -m http.server 5500
 ```
 
-После этого открыть:
+### 3. Запустить HTTPS-туннель ngrok
 
-- <http://localhost:5500>
+В отдельном PowerShell-окне:
 
-### Тест телефона
-
-1. Убедиться, что `docker compose up --build` уже выполнен и backend доступен по `http://localhost:8000`.
-2. Запустить фронтенд как HTTP-сайт (`python -m http.server 5500`).
-3. Открыть сайт на телефоне по IP машины, например:
-   - `http://192.168.0.10:5500`
-4. В `frontend/app.js` заменить:
-
-```javascript
-const API_BASE_URL = "http://localhost:8000";
+```powershell
+ngrok http 5500
 ```
 
-на:
+ngrok выведет строку типа:
 
-```javascript
-const API_BASE_URL = "http://192.168.0.10:8000";
+```text
+Forwarding https://some-name.ngrok-free.app -> http://localhost:5500
 ```
 
-## Как это работает
+### 4. Открыть на телефоне
 
-### База данных
+На Android в Chrome или Samsung Internet открыть HTTPS-адрес из ngrok:
 
-В `docker-compose.yml` описан сервис `db` на основе образа `postgres:15-alpine`.
+```text
+https://some-name.ngrok-free.app
+```
 
-- база: `scanner_db`
-- пользователь: `scanner`
-- пароль: `scanner`
+Нажать «Сканировать» и разрешить использование камеры.
 
-Файлы базы хранятся в Docker volume `postgres_data`, чтобы данные не терялись между перезапусками контейнера.
+После успешного сканирования:
 
-### Backend (FastAPI)
+1. Frontend остановит камеру.
+2. На странице отобразится декодированный номер.
+3. Frontend вызовет Render API.
+4. API вернёт доступные операции и последнюю операцию по изделию.
 
-Backend описан в `backend/app/main.py`.
+## Локальный запуск backend
 
-- при старте (`@app.on_event("startup")`) создаёт таблицы `products` и `production_operations` через SQLAlchemy.
-- использует переменную окружения `DATABASE_URL`, задаваемую в `docker-compose.yml`.
-- CORS разрешён для `http://localhost:5500` и родственных ориджинов.
+Backend уже развёрнут на Render, поэтому для обычной демонстрации локально запускать его не нужно.
 
-Работа с базой реализована через `SessionLocal` и dependency `get_db`, как рекомендует документация FastAPI+SQLAlchemy.
+Если требуется локальная разработка backend:
 
-### API-эндпоинты
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-- `GET /api/health` — проверка живости сервиса.
-- `GET /api/barcodes/{barcode}` —
-  - ищет продукт по штрих-коду,
-  - если не найден — создаёт запись,
-  - возвращает список доступных операций (пока захардкоженный справочник),
-  - возвращает последнюю операцию по этому продукту, если она есть.
-- `POST /api/operations/complete` —
-  - принимает `barcode` и `operation_code`,
-  - создаёт продукт, если он ещё не существует,
-  - записывает новую операцию с `performed_at` (UTC),
-  - возвращает `operation_id` и время выполнения.
+Локальная документация API будет доступна по адресу:
 
-### Фронтенд
+```text
+http://localhost:8000/docs
+```
 
-Фронтенд использует `html5-qrcode` для сканирования в браузере:
+## Deploy backend на Render
 
-- `startScanner()` включает камеру, запрашивает разрешение и настраивает `qrbox` под размер экрана.
-- `onScanSuccess()` вызывается при первом успешном чтении кода:
-  - останавливает сканер,
-  - показывает декодированный номер,
-  - вызывает `GET /api/barcodes/{barcode}`,
-  - показывает список доступных операций,
-  - показывает последнюю операцию по данному номеру.
+Backend автоматически деплоится из ветки `main` GitHub-репозитория.
 
-## Почему такой подход близок к production
+Настройки Render:
 
-- отделены **db** и **backend** как разные контейнеры.
-- URL базы и CORS настраиваются через переменные окружения.
-- используется SQLAlchemy и реальные таблицы, а не in-memory словари.
-- Docker Compose даёт тебе единый entrypoint: `docker compose up --build` для поднятия всей системы.
+| Поле | Значение |
+|---|---|
+| Service Type | Web Service |
+| Runtime | Python 3 |
+| Root Directory | `backend` |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Python Version | 3.12 |
+| Plan | Free |
 
-Дальше можно добавлять:
+Python-версия определяется файлом:
 
-- Alembic для миграций;
-- auth (JWT / HttpOnly cookies);
-- роли пользователей и аудит;
-- отдельный сервис для отчётности.
+```text
+backend/.python-version
+```
+
+Содержимое:
+
+```text
+3.12
+```
+
+## CORS
+
+Для demo backend временно допускает запросы с любых frontend-origin:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Это необходимо, потому что URL ngrok меняется при новом запуске туннеля.
+
+В production после добавления cookies/JWT нужно заменить wildcard на явный список доверенных доменов:
+
+```python
+allow_origins=[
+    "https://scanner.example.com"
+]
+```
+
+И только после этого включать:
+
+```python
+allow_credentials=True
+```
+
+## Ограничения demo-версии
+
+- SQLite применяется только для демонстрации логики и API.
+- Render free instance может «засыпать» после простоя, поэтому первый запрос иногда занимает до минуты.
+- Файловая система бесплатного Render-сервиса не предназначена для постоянного хранения SQLite-файла между redeploy/restart.
+- Список операций пока захардкожен в backend.
+- Пользователи, роли, авторизация и аудит пока не реализованы.
+
+## Дальнейшее развитие
+
+Для production-версии планируется:
+
+- PostgreSQL как постоянное хранилище.
+- Alembic для миграций схемы БД.
+- Справочник операций в базе данных.
+- Привязка операций к типу изделия, участку производства и рабочему месту.
+- Регистрация пользователей по email.
+- Хеширование паролей.
+- JWT или server-side session в HttpOnly cookies.
+- Роли: оператор, контролёр, технолог, администратор.
+- История изменений и полный производственный аудит.
+- PWA и офлайн-очередь сканирований.
+- Нативные Android/iOS приложения, использующие тот же JSON API.
+- CI/CD и автоматические тесты API.
