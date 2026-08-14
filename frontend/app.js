@@ -1,5 +1,5 @@
 // const API_BASE_URL = "http://localhost:8000";
-const API_BASE_URL = "http://192.168.10.222:8000";
+const API_BASE_URL = "https://production-scanner-v2.onrender.com";
 
 let scanner = null;
 let scanning = false;
